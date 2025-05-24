@@ -10,6 +10,7 @@ from PIL import Image
 import pandas as pd
 import io
 import asyncio
+import uvicorn
 
 # --- 1. Device Setup ---
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -247,4 +248,12 @@ def filter_products_sync(min_price, max_price, skin_type, acne, comedones, rosac
     ]
 
     return df_filtered[["Название", "Цена", "Тип продукта"]].reset_index(drop=True).head(10).to_dict(orient="records")
+
+if __name__ == "__main__":
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",  # Изменено с 127.0.0.1 на 0.0.0.0 для доступа извне
+        port=8000,
+        reload=True  # Включаем автоперезагрузку для разработки
+    )
 
