@@ -7,3 +7,4 @@ torchvision~=0.22.0
 pillow~=11.2.1
 pyngrok~=7.2.8
 fastapi-cli~=0.0.7
+python-multipart~=0.0.20
