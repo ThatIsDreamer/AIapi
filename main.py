@@ -9,9 +9,7 @@ from torchvision import models, transforms
 from PIL import Image
 import pandas as pd
 import io
-import uvicorn
-from pyngrok import ngrok
-import threading
+import asyncio
 
 # --- 1. Device Setup ---
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -192,8 +190,9 @@ async def predict(files: List[UploadFile] = File(..., description="List of image
     if not images:
         return {"error": "No valid images provided for prediction."}
 
-    skin_type = predict_skin_type(skin_type_model, images)
-    acne_status = predict_acne(acne_model, images)
+    # Используем asyncio.to_thread для асинхронного выполнения CPU-bound операций
+    skin_type = await asyncio.to_thread(predict_skin_type, skin_type_model, images)
+    acne_status = await asyncio.to_thread(predict_acne, acne_model, images)
 
     has_acne = (acne_status == "Acne")
 
@@ -215,6 +214,11 @@ async def filter_products(
     if df.empty:
         return {"error": "Product data not loaded. Cannot filter products."}
 
+    # Используем asyncio.to_thread для асинхронного выполнения операций с DataFrame
+    result = await asyncio.to_thread(filter_products_sync, min_price, max_price, skin_type, acne, comedones, rosacea)
+    return result
+
+def filter_products_sync(min_price, max_price, skin_type, acne, comedones, rosacea):
     df_filtered = df[(df["Цена"] >= min_price) & (df["Цена"] <= max_price)]
 
     if acne:
@@ -242,22 +246,5 @@ async def filter_products(
         )
     ]
 
-    result = df_filtered[["Название", "Цена", "Тип продукта"]].reset_index(drop=True).head(10).to_dict(orient="records")
-    return result
+    return df_filtered[["Название", "Цена", "Тип продукта"]].reset_index(drop=True).head(10).to_dict(orient="records")
 
-# --- 10. Run Uvicorn in a Separate Thread (for local development/testing) ---
-def run_uvicorn():
-    uvicorn.run(app, host="127.0.0.1", port=9000)
-
-uvicorn_thread = threading.Thread(target=run_uvicorn)
-uvicorn_thread.daemon = True
-uvicorn_thread.start()
-
-print("FastAPI app is running on http://127.0.0.1:9000")
-print("Access the API documentation at http://127.0.0.1:9000/docs")
-
-try:
-    while True:
-        threading.Event().wait(3600)
-except KeyboardInterrupt:
-    print("Server stopped by user.")
