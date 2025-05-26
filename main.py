@@ -11,13 +11,9 @@ import pandas as pd
 import io
 import asyncio
 
-# --- 1. Device Setup ---
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
-# --- 2. Model Loading ---
-
-# Load the Skin Type Model (ResNet18)
 skin_type_model = models.resnet18(pretrained=False)
 try:
     state_dict_skin_type = torch.load("skin_type1905 (1).pth", map_location=device)
@@ -32,25 +28,15 @@ except Exception as e:
     print(f"Error loading skin type model: {e}")
     exit()
 
-# Load the Acne Model (EfficientNet_B0)
 acne_model = models.efficientnet_b0(pretrained=False)
 
-# --- FIX FOR EFFICIENTNET CLASS MISMATCH ---
-# EfficientNet models have their classifier as `_fc` or `classifier`.
-# For efficientnet_b0, the final layer is usually `classifier.1` within a `Sequential` module.
-# The error message explicitly states `classifier.1.weight` and `classifier.1.bias`.
-#
-# Your saved model was trained for 2 classes.
-# We need to replace the default 1000-output layer with a 2-output layer.
-num_acne_classes = 2 # Based on your error message: shape [2, 1280]
+num_acne_classes = 2
 
-# The input features for the final linear layer can be found from the existing layer
 in_features = acne_model.classifier[1].in_features
 acne_model.classifier[1] = torch.nn.Linear(in_features, num_acne_classes)
-# --- END FIX ---
 
 try:
-    state_dict_acne = torch.load("acne_model.pth", map_location=device) # <<< Ensure this is the correct path for your acne model
+    state_dict_acne = torch.load("acne_model.pth", map_location=device)
     acne_model.load_state_dict(state_dict_acne)
     acne_model = acne_model.to(device)
     acne_model.eval()
@@ -62,14 +48,12 @@ except Exception as e:
     print(f"Error loading acne model: {e}. Double-check the number of output classes (should be {num_acne_classes}) and the model's exact architecture.")
     exit()
 
-# --- 3. Image Transformations ---
 transform = transforms.Compose([
     transforms.ToTensor(),
     transforms.Normalize(mean=[0.485, 0.456, 0.406],
                          std=[0.229, 0.224, 0.225])
 ])
 
-# --- 4. Image Resizing and Padding Utility ---
 def resize_with_padding(image: Image.Image, target_size=(214, 214)) -> Image.Image:
     ratio = min(target_size[0] / image.size[0], target_size[1] / image.size[1])
     new_size = (int(image.size[0] * ratio), int(image.size[1] * ratio))
@@ -78,7 +62,6 @@ def resize_with_padding(image: Image.Image, target_size=(214, 214)) -> Image.Ima
     new_img.paste(image, ((target_size[0] - new_size[0]) // 2, (target_size[1] - new_size[1]) // 2))
     return new_img
 
-# --- 5. Skin Type Prediction Function ---
 def predict_skin_type(model: torch.nn.Module, image_arr: List[Image.Image]) -> str:
     skin_type_predictions = []
     class_names = ["Dry", "Normal", "Oily"]
@@ -105,15 +88,10 @@ def predict_skin_type(model: torch.nn.Module, image_arr: List[Image.Image]) -> s
     else:
         return 'Oily'
 
-# --- 6. Acne Prediction Function ---
 def predict_acne(model: torch.nn.Module, image_arr: List[Image.Image]) -> str:
     acne_predictions = []
-    # Note: If your model outputs 2 classes (Acne/No Acne),
-    # the "Hesitation" logic depends on how you interpret the probabilities
-    # for those 2 classes. This current logic assumes model outputs 2.
-    class_names_from_model_output = ["Acne", "No Acne"] # Assuming 2 classes from model output
+    class_names_from_model_output = ["Acne", "No Acne"]
     final_acne_status_names = ["Acne", "No Acne", "Hesitation"]
-
 
     for img_pil in image_arr:
         img = resize_with_padding(img_pil, (214, 214))
@@ -124,32 +102,26 @@ def predict_acne(model: torch.nn.Module, image_arr: List[Image.Image]) -> str:
             logits = model(img_tensor)
             probs = torch.softmax(logits, dim=1)
 
-            # Check if model output has 2 classes as expected
             if probs.shape[1] != num_acne_classes:
                 print(f"Warning: Acne model outputted {probs.shape[1]} classes, but expected {num_acne_classes}. "
                       "This might affect 'Hesitation' logic.")
 
             print(f"Acne probabilities for one image: {probs.tolist()}")
 
-            # Determine the class based on probabilities
             predicted_class_idx = torch.argmax(probs, dim=1).item()
             predicted_class_name = class_names_from_model_output[predicted_class_idx]
 
-            # Apply custom logic for 'Hesitation' if the two class probabilities are too close
             if len(probs[0]) >= 2 and abs(probs[0][0] - probs[0][1]) < 0.2:
                 acne_predictions.append("Hesitation")
             else:
                 acne_predictions.append(predicted_class_name)
 
-
-    # Aggregate predictions
     if acne_predictions.count("Acne") >= 1:
         return "Acne"
     if acne_predictions.count("Hesitation") >= 1:
         return "Hesitation"
     return "No Acne"
 
-# --- 7. FastAPI Application Initialization ---
 app = FastAPI()
 
 app.add_middleware(
@@ -159,7 +131,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- 8. Load Product Data (CSV) ---
 try:
     df = pd.read_csv("products_treatment_annotated.csv")
     print("Product data CSV loaded successfully.")
@@ -169,8 +140,6 @@ except FileNotFoundError:
 except Exception as e:
     print(f"Error loading product data CSV: {e}")
     df = pd.DataFrame()
-
-# --- 9. API Endpoints ---
 
 @app.post("/predict/", summary="Predict Skin Type and Acne Status from Images")
 async def predict(files: List[UploadFile] = File(..., description="List of image files to analyze")):
@@ -187,7 +156,6 @@ async def predict(files: List[UploadFile] = File(..., description="List of image
     if not images:
         return {"error": "No valid images provided for prediction."}
 
-    # Используем asyncio.to_thread для асинхронного выполнения CPU-bound операций
     skin_type = await asyncio.to_thread(predict_skin_type, skin_type_model, images)
     acne_status = await asyncio.to_thread(predict_acne, acne_model, images)
 
@@ -211,7 +179,6 @@ async def filter_products(
     if df.empty:
         return {"error": "Product data not loaded. Cannot filter products."}
 
-    # Используем asyncio.to_thread для асинхронного выполнения операций с DataFrame
     result = await asyncio.to_thread(filter_products_sync, min_price, max_price, skin_type, acne, comedones, rosacea)
     return result
 
@@ -244,4 +211,3 @@ def filter_products_sync(min_price, max_price, skin_type, acne, comedones, rosac
     ]
 
     return df_filtered[["Название", "Цена", "Тип продукта"]].reset_index(drop=True).head(10).to_dict(orient="records")
-
