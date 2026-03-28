@@ -1,6 +1,3 @@
-import nest_asyncio
-nest_asyncio.apply()
-
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List
