@@ -1,8 +1,6 @@
-torch~=2.5.0
 pandas~=2.2.3
 uvicorn~=0.34.2
 fastapi~=0.115.12
-torchvision~=0.20.0
 pillow~=11.2.1
 pyngrok~=7.2.8
 fastapi-cli~=0.0.7
